@@ -1,0 +1,86 @@
+﻿StructuredBuffer<float4x4> _B;
+
+Texture2D<float> _LightDepthMap;
+SamplerState sampler_LightDepthMap;
+
+RWStructuredBuffer<float> _Test;
+
+#include "Noise.hlsl"
+
+float4x4 _LocalToWorldFrustrum;
+
+float4 _DepthParams;
+float3 _CamDir;
+float3 _LightDir;
+float _POW;
+float _EdgeDis;
+uint3 _Res;
+float _Time;
+float _DT;
+
+float4 _Origins[4];
+float4 _Directions[4];
+
+float3 rand(float3 p)
+{
+	p = float3(dot(p, float3(127.1, 311.7, 475.6)), dot(p, float3(269.5, 676.5, 475.6)), dot(p, float3(318.5, 183.3, 713.4)));
+	return frac(sin(p) * 43758.5453);
+}
+
+float2 rand(float2 p)
+{
+	p = float2(dot(p, float2(127.1, 311.7)), dot(p, float2(269.5, 183.3)));
+	return frac(sin(p) * 43758.5453);
+}
+
+float rand(float p)
+{
+	return frac(sin(p) * 43758.5453);
+}
+
+
+#define FLAT_ID flattenIndex(id, _Res)
+int flattenIndex(int3 index, int3 dim)
+{
+	return index.x + dim.x * (index.y + dim.y * index.z);
+}
+
+#pragma kernel Volume
+[numthreads(8, 8, 8)]
+void Volume(uint3 id : SV_DispatchThreadID)
+{
+	float4 objectPos = float4((float3)id.xyz / (float3)(_Res - 1), 1);
+
+	float4 O = lerp(lerp(_Origins[2], _Origins[3], objectPos.x), lerp(_Origins[0], _Origins[1], objectPos.x), objectPos.y);
+	float4 D = lerp(lerp(_Directions[2], _Directions[3], objectPos.x), lerp(_Directions[0], _Directions[1], objectPos.x), objectPos.y);
+
+	float4 worldPos = O + D * pow(objectPos.z, _POW) * _EdgeDis;
+	worldPos.xyz += (rand(worldPos.xyz * _DT) * 2 - 1) * 0.15;
+	float4 projCoords = mul(_B[0], float4(worldPos.xyz, 1));
+
+	float fragDepth = projCoords.z;
+	float lightDepth = _LightDepthMap.GatherRed(sampler_LightDepthMap, projCoords.xy / projCoords.w, 0).x;
+
+	//
+	float ret = (lightDepth > fragDepth) ? 0 : 1;
+
+	float prevP = max(((float)id.z - 1.0), 0.0) / (float)(_Res.z - 1);
+	float st = pow(objectPos.z, _POW) - pow(prevP, _POW);
+
+	float n = snoise(float4(worldPos.xyz * 0.5 + _Time, _Time * 0.5)) * 0.5 + 0.5;
+	n = 1;
+
+	_Test[FLAT_ID] = ret * st * (dot(D.xyz, -_LightDir) * 0.5 + 0.5) * n * _EdgeDis / 1500 + length((rand(worldPos.xyz * _DT)) * 2 - .5) * 0.0001;
+}
+
+#pragma kernel Add
+[numthreads(32, 32, 1)]
+void Add(uint3 id : SV_DispatchThreadID)
+{
+	float total = 0;
+	for (uint i = 0; i < _Res.z; i++)
+	{
+		total += _Test[(id.x + _Res.x * (id.y + _Res.y * i))];
+		_Test[(id.x + _Res.x * (id.y + _Res.y * i))] = total;
+	}
+}
