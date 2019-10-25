@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-public class Vol : MonoBehaviour
+public class VolumeRenderer : MonoBehaviour
 {
 
     public ComputeShader cs;
