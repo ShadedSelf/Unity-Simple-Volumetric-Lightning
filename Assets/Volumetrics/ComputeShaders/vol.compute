@@ -3,7 +3,7 @@
 Texture2D<float> _LightDepthMap;
 SamplerState sampler_LightDepthMap;
 
-RWStructuredBuffer<float> _Test;
+RWStructuredBuffer<float3> _Test;
 
 #include "Noise.hlsl"
 
@@ -17,6 +17,7 @@ float _EdgeDis;
 uint3 _Res;
 float _Time;
 float _DT;
+float _Density;
 
 float4 _Origins[4];
 float4 _Directions[4];
@@ -45,6 +46,7 @@ int flattenIndex(int3 index, int3 dim)
 	return index.x + dim.x * (index.y + dim.y * index.z);
 }
 
+
 #pragma kernel Volume
 [numthreads(8, 8, 8)]
 void Volume(uint3 id : SV_DispatchThreadID)
@@ -55,7 +57,7 @@ void Volume(uint3 id : SV_DispatchThreadID)
 	float4 D = lerp(lerp(_Directions[2], _Directions[3], objectPos.x), lerp(_Directions[0], _Directions[1], objectPos.x), objectPos.y);
 
 	float4 worldPos = O + D * pow(objectPos.z, _POW) * _EdgeDis;
-	worldPos.xyz += (rand(worldPos.xyz * _DT) * 2 - 1) * 0.15;
+	worldPos.xyz += (rand(worldPos.xyz * _DT) * 2 - 1) * 0.1;
 	float4 projCoords = mul(_B[0], float4(worldPos.xyz, 1));
 
 	float fragDepth = projCoords.z;
@@ -70,14 +72,15 @@ void Volume(uint3 id : SV_DispatchThreadID)
 	float n = snoise(float4(worldPos.xyz * 0.5 + _Time, _Time * 0.5)) * 0.5 + 0.5;
 	n = 1;
 
-	_Test[FLAT_ID] = ret * st * (dot(D.xyz, -_LightDir) * 0.5 + 0.5) * n * _EdgeDis / 50 + length((rand(worldPos.xyz * _DT)) * 2 - .5) * 0.0001;
+	_Test[FLAT_ID] = ret * st * (dot(D.xyz, -_LightDir) * 0.5 + 0.5) * n * _EdgeDis / _Density;// + length((rand(worldPos.xyz * _DT)) * 2 - .5) * 0.0001;
+	// _Test[FLAT_ID] *= lerp(float3(1, 1, 0), float3(1, 0, 0), (dot(D.xyz, -_LightDir) * 0.5 + 0.5));
 }
 
 #pragma kernel Add
 [numthreads(32, 32, 1)]
 void Add(uint3 id : SV_DispatchThreadID)
 {
-	float total = 0;
+	float3 total = 0;
 	for (uint i = 0; i < _Res.z; i++)
 	{
 		total += _Test[(id.x + _Res.x * (id.y + _Res.y * i))];

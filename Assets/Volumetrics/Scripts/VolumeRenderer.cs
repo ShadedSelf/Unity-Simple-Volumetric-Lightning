@@ -7,11 +7,10 @@ public class VolumeRenderer : MonoBehaviour
 {
 
     public ComputeShader cs;
-    public FilterMode filter;
-    public RenderTexture volume;
 
     public Vector3Int res = Vector3Int.one * 128;
     public float pow = 1;
+	public float density = 50;
 
     private Camera cam;
 
@@ -19,21 +18,11 @@ public class VolumeRenderer : MonoBehaviour
 	
     void OnEnable()
     {
-        volume = new RenderTexture(res.x, res.y, 0, RenderTextureFormat.RFloat, RenderTextureReadWrite.Linear);
-        volume.enableRandomWrite = true;
-        volume.dimension = TextureDimension.Tex3D;
-        volume.volumeDepth = res.z;
-        volume.filterMode = filter;
-        volume.Create();
+		test = new ComputeBuffer(res.x * res.y * res.z, sizeof(float) * 3);
 
-		test = new ComputeBuffer(res.x * res.y * res.z, sizeof(float));
-
-        cs.SetTexture(0, "_Volume", volume);
-        cs.SetTexture(1, "_Volume", volume);
 		cs.SetBuffer(0, "_Test", test);
         cs.SetBuffer(1, "_Test", test);
 
-        Shader.SetGlobalTexture("_Volume", volume);
 		Shader.SetGlobalBuffer("_Test", test);
 		Shader.SetGlobalVector("_Res", new Vector3(res.x, res.y, res.z));
 
@@ -54,6 +43,7 @@ public class VolumeRenderer : MonoBehaviour
 
         cs.SetMatrix("_LocalToWorldFrustrum", matrix);
         cs.SetFloat("_POW", pow);
+        cs.SetFloat("_Density", density);
         cs.SetFloat("_Time", Time.time);
         cs.SetFloat("_DT", Time.deltaTime);
         cs.SetFloat("_EdgeDis", Vector3.Distance(cam.ScreenToWorldPoint(new Vector3(0, 0, cam.nearClipPlane)), cam.ScreenToWorldPoint(new Vector3(0, 0, cam.farClipPlane))));
@@ -92,7 +82,6 @@ public class VolumeRenderer : MonoBehaviour
 
 	void OnDisable()
 	{
-		volume.Release();
 		test.Release();
 	}
 }

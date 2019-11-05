@@ -31,12 +31,6 @@
 				return o;
 			}
 
-			float3 rand(float3 p)
-			{
-				p = float3(dot(p, float3(127.1, 311.7, 475.6)), dot(p, float3(269.5, 676.5, 475.6)), dot(p, float3(318.5, 183.3, 713.4)));
-				return frac(sin(p) * 43758.5453);
-			}
-
 			int flattenIndex(int3 index, int3 dim)
 			{
 				return index.x + dim.x * (index.y + dim.y * index.z);
@@ -47,48 +41,52 @@
 			sampler2D _CameraDepthTexture;
 			sampler3D _Volume;
 
-			StructuredBuffer<float> _Test;
+			StructuredBuffer<float3> _Test;
 
 			float _POW;
 			int3 _Res;
 
 			float trinterpolate(float a, float b, float c, float t)
 			{
-				if (t < 0.5)
-					return lerp(a, b, t + 0.5);
+				if (t < 0.5) return lerp(a, b, t + 0.5);
+				return lerp(b, c, t - 0.5);
+			}			
+			float3 trinterpolate(float3 a, float3 b, float3 c, float t)
+			{
+				if (t < 0.5) return lerp(a, b, t + 0.5);
 				return lerp(b, c, t - 0.5);
 			}
 
-			float sampleSlice(float3 uv, int3 index)
+			float3 sampleSlice(float3 uv, int3 index)
 			{
-				float me = _Test[flattenIndex(index, _Res)];
+				float3 me = _Test[flattenIndex(index, _Res)];
 
-				float u = _Test[flattenIndex(clamp(index + int3(0, 1, 0), 0, _Res - 1), _Res)];
-				float r = _Test[flattenIndex(clamp(index + int3(1, 0, 0), 0, _Res - 1), _Res)];
-				float d = _Test[flattenIndex(clamp(index - int3(0, 1, 0), 0, _Res - 1), _Res)];
-				float l = _Test[flattenIndex(clamp(index - int3(1, 0, 0), 0, _Res - 1), _Res)];
+				float3 u = _Test[flattenIndex(clamp(index + int3(0, 1, 0), 0, _Res - 1), _Res)];
+				float3 r = _Test[flattenIndex(clamp(index + int3(1, 0, 0), 0, _Res - 1), _Res)];
+				float3 d = _Test[flattenIndex(clamp(index - int3(0, 1, 0), 0, _Res - 1), _Res)];
+				float3 l = _Test[flattenIndex(clamp(index - int3(1, 0, 0), 0, _Res - 1), _Res)];
 
-				float ul = _Test[flattenIndex(clamp(index + int3(-1, 1, 0), 0, _Res - 1), _Res)];
-				float ur = _Test[flattenIndex(clamp(index + int3(1, 1, 0), 0, _Res - 1), _Res)];
-				float dl = _Test[flattenIndex(clamp(index + int3(-1, -1, 0), 0, _Res - 1), _Res)];
-				float dr = _Test[flattenIndex(clamp(index + int3(1, -1, 0), 0, _Res - 1), _Res)];
+				float3 ul = _Test[flattenIndex(clamp(index + int3(-1, 1, 0), 0, _Res - 1), _Res)];
+				float3 ur = _Test[flattenIndex(clamp(index + int3(1, 1, 0), 0, _Res - 1), _Res)];
+				float3 dl = _Test[flattenIndex(clamp(index + int3(-1, -1, 0), 0, _Res - 1), _Res)];
+				float3 dr = _Test[flattenIndex(clamp(index + int3(1, -1, 0), 0, _Res - 1), _Res)];
 
-				float3 fuv = frac(uv * (_Res - 1));
-				float top = trinterpolate(ul, u, ur, fuv.x);
-				float mid = trinterpolate(l, me, r, fuv.x);
-				float bot = trinterpolate(dl, d, dr, fuv.x);
-				float total = trinterpolate(bot, mid, top, fuv.y);
+				float3 fuv 		= frac(uv * (_Res - 1));
+				float3 top 		= trinterpolate(ul, u, ur, fuv.x);
+				float3 mid 		= trinterpolate(l, me, r, fuv.x);
+				float3 bot 		= trinterpolate(dl, d, dr, fuv.x);
+				float3 total	= trinterpolate(bot, mid, top, fuv.y);
 
 				return total;
 			}
 
-			float sampleBuffer(float3 uv)
+			float3 sampleBuffer(float3 uv)
 			{
 				int3 index = floor(uv * (_Res - 1));
 
-				float back	= sampleSlice(uv, index - int3(0, 0, 1));
-				float mid	= sampleSlice(uv, index);
-				float front	= sampleSlice(uv, index + int3(0, 0, 1));
+				float3 back		= sampleSlice(uv, index - int3(0, 0, 1));
+				float3 mid		= sampleSlice(uv, index);
+				float3 front	= sampleSlice(uv, index + int3(0, 0, 1));
 
 				float3 fuv = frac(uv * (_Res - 1));
 				return trinterpolate(back, mid, front, fuv.z);
@@ -99,11 +97,15 @@
 				float depth = Linear01Depth(tex2D(_CameraDepthTexture, i.uv).r);
 				depth = pow(depth, 1 / _POW);
 
-				float3 uvs = (rand(float3(i.uv.xy, depth) * _Time.x) * 2 - .5) * 0.007;
-				float col = sampleBuffer(saturate(float3(i.uv, depth) + uvs * 0));
+				// float3 uvs = (rand(float3(i.uv.xy, depth) * _Time.x) * 2 - .5) * 0.007;
+				float3 col = sampleBuffer(saturate(float3(i.uv, depth)));
 
-				float4 ac = tex2D(_MainTex, i.uv);
-				return  ac + col;
+				if (depth == 1) //Interesting...
+					return float4(col, 1);
+
+				float3 ac = tex2D(_MainTex, i.uv).xyz;
+				// ac = 0;
+				return  float4(ac + col, 1);
 			}
 			ENDCG
 		}
